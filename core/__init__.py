@@ -24,7 +24,6 @@ __all__ = [
 User interface components for the dashboard.
 """
 
-from .dashboard import render_dashboard
 
 __all__ = ['render_dashboard']
 
