@@ -18,9 +18,9 @@ from datetime import datetime
 from typing import Dict, List
 
 # Import our modular components
-from core.config import AppConfig, UI_CONFIG
-from core.data_fetcher import DataFetcher
-from core.sentiment_analyzer import SentimentAnalyzer
+from core.Config import AppConfig, UI_CONFIG
+from core.Data_fectcher import DataFetcher
+from core.Sentiment_analyzer import SentimentAnalyzer
 from core.forecaster import Forecaster
 from core.ai_advisor import AIAdvisor
 from core.memory_manager import MemoryManager
