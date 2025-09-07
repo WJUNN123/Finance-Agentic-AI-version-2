@@ -6,7 +6,7 @@ import math
 import re
 from typing import Dict, List, Optional
 import google.generativeai as genai
-from core.config import AppConfig
+from .Config import AppConfig
 
 class AIAdvisor:
     """Handles AI-powered investment insights and recommendations."""
