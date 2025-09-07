@@ -19,7 +19,7 @@ from typing import Dict, List
 
 # Import our modular components
 from core.Config import AppConfig, UI_CONFIG
-from core.Data_fectcher import DataFetcher
+from core.Data_fetcher import DataFetcher
 from core.Sentiment_analyzer import SentimentAnalyzer
 from core.forecaster import Forecaster
 from core.ai_advisor import AIAdvisor
