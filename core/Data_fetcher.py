@@ -1,183 +1,210 @@
 """
-Configuration settings for the Crypto Analysis App
+Data fetching module for cryptocurrency market data and news
 """
 
-import os
-import streamlit as st
+import requests
+import pandas as pd
+import numpy as np
+import feedparser
+import time
+from datetime import datetime, timezone
+from typing import List, Dict, Optional
 
-class AppConfig:
-    """Central configuration class for the application."""
+class DataFetcher:
+    """Handles fetching market data and news articles."""
     
-    # Supported cryptocurrencies
-    SUPPORTED_COINS = [
-        {"name": "Bitcoin", "id": "bitcoin", "symbol": "btc"},
-        {"name": "Ethereum", "id": "ethereum", "symbol": "eth"},
-        {"name": "Solana", "id": "solana", "symbol": "sol"},
-        {"name": "BNB", "id": "binancecoin", "symbol": "bnb"},
-        {"name": "XRP", "id": "ripple", "symbol": "xrp"},
-        {"name": "Cardano", "id": "cardano", "symbol": "ada"},
-        {"name": "Dogecoin", "id": "dogecoin", "symbol": "doge"},
-    ]
-    
-    # News RSS feeds
-    RSS_FEEDS = [
-        "https://www.coindesk.com/arc/outboundfeeds/rss/",
-        "https://cointelegraph.com/rss",
-        "https://news.google.com/rss/search?q=cryptocurrency&hl=en-US&gl=US&ceid=US:en",
-    ]
-    
-    # AI Model settings
-    FINBERT_MODEL = "ProsusAI/finbert"
-    SENTIMENT_DEVICE = -1  # CPU: -1, GPU: 0
-    
-    # Forecasting parameters
-    FORECAST_PARAMS = {
-        "lstm_window": 30,
-        "lstm_epochs": 20,
-        "lstm_batch_size": 16,
-        "prophet_seasonality": "multiplicative"
-    }
-    
-    @property
-    def coin_name_mapping(self):
-        """Mapping of coin names to CoinGecko IDs."""
-        return {coin["name"].lower(): coin["id"] for coin in self.SUPPORTED_COINS}
-    
-    @property
-    def coin_symbol_mapping(self):
-        """Mapping of coin symbols to CoinGecko IDs."""
-        return {coin["symbol"].lower(): coin["id"] for coin in self.SUPPORTED_COINS}
-    
-    @staticmethod
-    def get_api_key(service: str) -> str:
-        """Get API key from Streamlit secrets or environment variables."""
+    def __init__(self):
+        self.base_url = "https://api.coingecko.com/api/v3"
+        self.request_timeout = 20
+        
+    def get_market_data(self, coin_ids: List[str]) -> pd.DataFrame:
+        """
+        Fetch current market data for specified coins from CoinGecko.
+        
+        Args:
+            coin_ids: List of CoinGecko coin IDs
+            
+        Returns:
+            DataFrame with market data
+        """
+        if not coin_ids:
+            return pd.DataFrame()
+            
+        url = f"{self.base_url}/coins/markets"
+        params = {
+            "vs_currency": "usd",
+            "ids": ",".join(coin_ids),
+            "order": "market_cap_desc",
+            "per_page": len(coin_ids),
+            "page": 1,
+            "sparkline": "false",
+            "price_change_percentage": "1h,24h,7d",
+        }
+        
         try:
-            # Try Streamlit secrets first
-            return st.secrets.get(service, {}).get("api_key", "")
+            response = requests.get(url, params=params, timeout=self.request_timeout)
+            response.raise_for_status()
+            return pd.DataFrame(response.json())
+        except requests.RequestException as e:
+            print(f"Error fetching market data: {e}")
+            return pd.DataFrame()
+    
+    def get_price_history(self, coin_id: str, days: int = 180) -> pd.DataFrame:
+        """
+        Fetch historical price data for a coin.
+        
+        Args:
+            coin_id: CoinGecko coin ID
+            days: Number of days of history to fetch
+            
+        Returns:
+            DataFrame with timestamp index and price column
+        """
+        url = f"{self.base_url}/coins/{coin_id}/market_chart"
+        params = {"vs_currency": "usd", "days": days}
+        
+        try:
+            response = requests.get(url, params=params, timeout=self.request_timeout)
+            response.raise_for_status()
+            data = response.json()
+            
+            prices = data.get("prices", [])
+            if not prices:
+                return pd.DataFrame(columns=["price"])
+                
+            df = pd.DataFrame(prices, columns=["timestamp_ms", "price"])
+            df["timestamp"] = pd.to_datetime(df["timestamp_ms"], unit="ms", utc=True)
+            df.set_index("timestamp", inplace=True)
+            df.drop(columns=["timestamp_ms"], inplace=True)
+            
+            return df
+            
+        except requests.RequestException as e:
+            print(f"Error fetching price history: {e}")
+            return pd.DataFrame(columns=["price"])
+    
+    def calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
+        """
+        Calculate Relative Strength Index (RSI).
+        
+        Args:
+            prices: Series of price data
+            period: RSI period (default 14)
+            
+        Returns:
+            RSI value (0-100) or NaN if insufficient data
+        """
+        if len(prices) < period + 1:
+            return float('nan')
+            
+        delta = prices.diff()
+        gains = delta.clip(lower=0)
+        losses = -delta.clip(upper=0)
+        
+        avg_gain = gains.rolling(window=period).mean()
+        avg_loss = losses.rolling(window=period).mean()
+        
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+        
+        return float(rsi.iloc[-1]) if not rsi.empty else float('nan')
+    
+    def get_news_articles(self, coin_symbol: str, coin_name: str, 
+                         limit_per_feed: int = 20) -> List[Dict]:
+        """
+        Fetch news articles related to a cryptocurrency.
+        
+        Args:
+            coin_symbol: Coin symbol (e.g., 'BTC')
+            coin_name: Coin name (e.g., 'bitcoin')
+            limit_per_feed: Maximum articles per RSS feed
+            
+        Returns:
+            List of article dictionaries
+        """
+        rss_feeds = [
+            "https://www.coindesk.com/arc/outboundfeeds/rss/",
+            "https://cointelegraph.com/rss",
+            "https://news.google.com/rss/search?q=cryptocurrency&hl=en-US&gl=US&ceid=US:en",
+        ]
+        
+        search_terms = [coin_symbol.lower(), coin_name.lower()]
+        articles = []
+        
+        for feed_url in rss_feeds:
+            try:
+                feed = feedparser.parse(feed_url)
+                for entry in feed.entries[:limit_per_feed]:
+                    title = entry.get("title", "")
+                    summary = entry.get("summary", "")
+                    link = entry.get("link", "")
+                    
+                    # Check if article is relevant
+                    content = f"{title} {summary}".lower()
+                    if any(term in content for term in search_terms):
+                        
+                        # Parse publication date
+                        published = entry.get("published_parsed") or entry.get("updated_parsed")
+                        pub_timestamp = time.mktime(published) if published else time.time()
+                        
+                        articles.append({
+                            "title": title,
+                            "summary": summary,
+                            "link": link,
+                            "published_timestamp": pub_timestamp,
+                            "published_date": self._format_timestamp(pub_timestamp),
+                            "source": feed_url,
+                        })
+                        
+            except Exception as e:
+                print(f"Error fetching from {feed_url}: {e}")
+                continue
+        
+        # Remove duplicates and sort by date
+        seen_titles = set()
+        unique_articles = []
+        
+        for article in sorted(articles, key=lambda x: x["published_timestamp"], reverse=True):
+            if article["title"] not in seen_titles:
+                seen_titles.add(article["title"])
+                unique_articles.append(article)
+        
+        return unique_articles[:50]  # Return top 50 articles
+    
+    def _format_timestamp(self, timestamp: float) -> str:
+        """Format timestamp to human-readable date."""
+        try:
+            dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            return dt.strftime("%Y-%m-%d %H:%M UTC")
         except:
-            # Fall back to environment variables
-            return os.getenv(f"{service.upper()}_API_KEY", "")
-
-# UI Configuration
-UI_CONFIG = {
-    "custom_css": """
-    <style>
-    /* Main container styling */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1200px;
-    }
+            return "Unknown"
     
-    /* Header styling */
-    .app-header {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        margin-bottom: 2rem;
-    }
-    
-    .app-logo {
-        width: 40px;
-        height: 40px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-    }
-    
-    /* Card styling */
-    .metric-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    }
-    
-    /* Recommendation badges */
-    .rec-badge {
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-weight: 600;
-        text-align: center;
-        margin: 8px 0;
-    }
-    
-    .rec-buy {
-        background: #dcfce7;
-        color: #166534;
-        border: 1px solid #bbf7d0;
-    }
-    
-    .rec-sell {
-        background: #fee2e2;
-        color: #991b1b;
-        border: 1px solid #fecaca;
-    }
-    
-    .rec-hold {
-        background: #fef3c7;
-        color: #92400e;
-        border: 1px solid #fed7aa;
-    }
-    
-    /* Button styling */
-    .stButton > button {
-        border-radius: 8px;
-        border: none;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        font-weight: 500;
-    }
-    
-    /* Quick action buttons */
-    .quick-action {
-        background: #f1f5f9;
-        border: 1px solid #cbd5e1;
-        border-radius: 8px;
-        padding: 8px 12px;
-        margin: 4px;
-        cursor: pointer;
-        transition: background 0.2s;
-    }
-    
-    .quick-action:hover {
-        background: #e2e8f0;
-    }
-    </style>
-    """,
-    
-    "header_html": """
-    <div class='app-header'>
-        <div class='app-logo'>📊</div>
-        <div>
-            <h1 style='margin: 0; color: #1e293b;'>Crypto Analysis Dashboard</h1>
-            <p style='margin: 0; color: #64748b; font-size: 1.1rem;'>
-                AI-powered cryptocurrency analysis and forecasting
-            </p>
-        </div>
-    </div>
-    """
-}
-
-# Risk disclaimers and warnings
-RISK_DISCLAIMERS = {
-    "main": """
-   ⚠️ **Important Disclaimer**: This tool is for educational purposes only. 
-    Cryptocurrency investments carry significant risks. Always do your own research 
-    and consider consulting with a financial advisor before making investment decisions.
-    """,
-    
-    "ai_limitation": """
-    🤖 **AI Limitations**: AI-generated insights are based on historical data and 
-    current market sentiment. They cannot predict future market movements with certainty.
-    """,
-    
-    "data_accuracy": """
-    📊 **Data Accuracy**: While we strive for accuracy, market data may have delays 
-    or inaccuracies. Always verify information from multiple sources.
-    """
-}
+    def get_market_metrics(self, price_history: pd.DataFrame) -> Dict:
+        """
+        Calculate additional market metrics from price history.
+        
+        Args:
+            price_history: DataFrame with price data
+            
+        Returns:
+            Dictionary of calculated metrics
+        """
+        if price_history.empty or "price" not in price_history.columns:
+            return {}
+        
+        prices = price_history["price"]
+        
+        metrics = {
+            "rsi_14": self.calculate_rsi(prices, 14),
+            "ma_7": prices.rolling(7).mean().iloc[-1] if len(prices) >= 7 else None,
+            "ma_14": prices.rolling(14).mean().iloc[-1] if len(prices) >= 14 else None,
+            "ma_30": prices.rolling(30).mean().iloc[-1] if len(prices) >= 30 else None,
+        }
+        
+        # Calculate volatility (standard deviation of returns)
+        if len(prices) > 1:
+            returns = prices.pct_change().dropna()
+            metrics["volatility_7d"] = returns.tail(7).std() if len(returns) >= 7 else None
+            metrics["volatility_30d"] = returns.tail(30).std() if len(returns) >= 30 else None
+        
+        return {k: v for k, v in metrics.items() if v is not None}
