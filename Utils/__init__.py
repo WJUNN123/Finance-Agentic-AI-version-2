@@ -4,7 +4,7 @@ Core modules for cryptocurrency analysis functionality.
 """
 
 from .Config import AppConfig
-from .Data_fectcher import DataFetcher  
+from .Data_fetcher import DataFetcher  
 from .Sentiment_analyzer import SentimentAnalyzer
 from .forecaster_module import Forecaster
 from .ai_advisor_module import AIAdvisor
