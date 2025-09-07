@@ -3,11 +3,11 @@
 Core modules for cryptocurrency analysis functionality.
 """
 
-from .config import AppConfig
-from .data_fetcher import DataFetcher  
-from .sentiment_analyzer import SentimentAnalyzer
-from .forecaster import Forecaster
-from .ai_advisor import AIAdvisor
+from .Config import AppConfig
+from .Data_fectcher import DataFetcher  
+from .Sentiment_analyzer import SentimentAnalyzer
+from .forecaster_module import Forecaster
+from .ai_advisor_module import AIAdvisor
 from .memory_manager import MemoryManager
 
 __all__ = [
