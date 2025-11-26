@@ -32,7 +32,7 @@ __all__ = ['render_dashboard']
 Utility functions and helpers.
 """
 
-from .helpers import (
+from Utils.helpers import (
     parse_user_message,
     format_currency,
     format_percentage,
