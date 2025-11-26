@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Union
-from core.config import AppConfig
+from core.Config import AppConfig
 
 def parse_user_message(message: str) -> Dict:
     """
