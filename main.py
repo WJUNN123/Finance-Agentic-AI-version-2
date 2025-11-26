@@ -24,7 +24,7 @@ from core.Sentiment_analyzer import SentimentAnalyzer
 from core.forecaster_module import Forecaster
 from core.ai_advisor_module import AIAdvisor
 from core.memory_manager import MemoryManager
-from ui.dashboard import render_dashboard
+from UI.dashboard import render_dashboard
 from Utils.helpers import parse_user_message, format_response
 
 class CryptoAnalysisApp:
