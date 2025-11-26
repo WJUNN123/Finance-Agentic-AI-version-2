@@ -25,7 +25,7 @@ from core.forecaster import Forecaster
 from core.ai_advisor import AIAdvisor
 from core.memory_manager import MemoryManager
 from ui.dashboard import render_dashboard
-from utils.helpers import parse_user_message, format_response
+from Utils.helpers import parse_user_message, format_response
 
 class CryptoAnalysisApp:
     """Main application class that orchestrates all components."""
