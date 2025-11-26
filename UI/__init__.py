@@ -1,1 +1,1 @@
-from .dashboard import render_dashboard
+from .dashboard_ui import render_dashboard
